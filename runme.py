@@ -5,7 +5,9 @@ import pandas as pd
 
 def Q4(num_samples=5000, burn_in=1000):
     """
-
+    Problems: sigma is right now constant. Should probably update it throughout the process
+    I don't think that s1 and s2 means are updated correctly. They should probably be based
+        on the formulas in the curly brackets, and not with t = s1 - s2
     """
     def truncated_normal(mean, std, a, b):
         """Sample from a truncated normal distribution."""
@@ -79,7 +81,7 @@ def plot_samples(s1_samples, s2_samples, burn_in):
     plt.title('s2 over iterations')
     plt.xlabel('Iteration')
     plt.ylabel('s2')
-    plt.legend()
+    plt.legend(loc="lower right")
     
     plt.tight_layout()
     plt.show()
@@ -109,7 +111,9 @@ def Q4_match(s1, s2, mu=25, sigma=2, num_samples=1000):
     return np.mean(s1_samples), np.mean(s2_samples)
 
 def Q5(matches, teams, num_samples=1000):
-    """Assumed Density Filtering for a stream of matches."""
+    """
+    Problems: Should Q4 be run with num_samples???
+    """
     skills = {team: (50, 2) for team in teams}  # (mean, sigma)
 
     for match in matches:
@@ -157,7 +161,6 @@ def load_dataset(filename):
 
 def main():
     # Q4
-    """
     burn_in = 1000
     s1_samples, s2_samples = Q4(num_samples=2000, burn_in=burn_in)
     plot_samples(s1_samples, s2_samples, burn_in)
@@ -170,6 +173,7 @@ def main():
     teams = set([match[0] for match in matches] + [match[1] for match in matches])
     final_skills = Q5(matches, teams, num_samples=1000)
     rank_teams(final_skills)
+    """
 
 
 if __name__ == "__main__":
