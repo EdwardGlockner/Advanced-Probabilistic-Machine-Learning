@@ -191,7 +191,6 @@ def rank_teams(skills):
     ranked_teams = sorted(skills.items(), key=lambda x: x[1][0], reverse=True)
     for i, (team, skill) in enumerate(ranked_teams):
         print(f"{i + 1}. {team}: Skill {skill[0]:.2f}, Variance: {skill[1]:.2f}")
-            s2, s1 = Q4_match(s2_mean, s1_mean, num_samples=num_samples)
 
 
 def load_dataset(filename):
@@ -208,9 +207,55 @@ def load_dataset(filename):
 
     return matches
 
-def Q6():
-    pass
 
+def predict_winner(s1, s2):
+    """
+    Predicts the winner between two players based on their skills.
+    Returns +1 if Player 1 is predicted to win, -1 if Player 2 is predicted to win.
+    """
+    # The decision rule: Player 1 wins if s1 > s2
+    if s1 > s2:
+        print("s1 wins")
+    else:
+        print("s2 wins")
+    return 1 if s1 > s2 else -1
+
+def Q6(matches, skills, num_samples=1000):
+    correct_predictions = 0
+
+    for match in matches:
+        team1, team2, score1, score2 = match
+        
+        # Skip draws
+        if score1 == score2:
+            continue
+        
+        # Get current skills for the teams
+        s1_mean, s1_sigma = skills[team1]
+        s2_mean, s2_sigma = skills[team2]
+        
+        # Predict the outcome
+        prediction = predict_winner(s1_mean, s2_mean)
+
+        # Compare prediction to the actual result
+        actual_result = 1 if score1 > score2 else -1
+        if prediction == actual_result:
+            correct_predictions += 1
+        
+        # Update the skills with the actual match result
+        if actual_result == 1:
+            s1_new, s2_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, y=1)
+        else:
+            s2_new, s1_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, y=-1)
+        
+        # Update skills for the teams
+        skills[team1] = (s1_new, s1_sigma)  # Update skill for team 1
+        skills[team2] = (s2_new, s2_sigma)  # Update skill for team 2
+    
+    # Calculate prediction rate
+    prediction_rate = correct_predictions / (len(matches) - correct_predictions)  # Total matches minus draws
+    print(f"Prediction rate: {prediction_rate:.2f}")
+    return prediction_rate
 
 def main():
     # Q4
@@ -221,12 +266,30 @@ def main():
     """
     
     # Q5
+    """
     filename = 'SerieA.csv'  # Change to the correct path of your dataset
     matches = load_dataset(filename)
 
     teams = set([match[0] for match in matches] + [match[1] for match in matches])
     final_skills = Q5(matches, teams, num_samples=1000)
     rank_teams(final_skills)
+    """
+
+    # Load matches from the dataset
+    filename = 'SerieA.csv'  # Change to the correct path of your dataset
+    matches = load_dataset(filename)
+
+    teams = set([match[0] for match in matches] + [match[1] for match in matches])
+    
+    # Initialize skills
+    skills = {team: (50, 2) for team in teams}  # (mean, sigma)
+
+    # Run the predictions
+    prediction_rate = Q6(matches, skills, num_samples=1000)
+    
+    # Check if better than random guessing
+    print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+
 
 
 if __name__ == "__main__":
