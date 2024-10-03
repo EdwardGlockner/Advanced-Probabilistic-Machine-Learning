@@ -291,6 +291,7 @@ def predict_winner(s1, s2):
 
 def main():
     # Q4
+    """
     burn_in = 10
     s1_samples, s2_samples, var_s1, var_s2 = Q4(num_samples=5000, burn_in=60)
     plot_samples(s1_samples, s2_samples, burn_in=60)
@@ -315,10 +316,9 @@ def main():
     s2_mean_prior, s2_std_prior = 25, 25/3
 
     plot_prior_vs_posterior(s1_mean_prior, s1_std_prior, s2_mean_prior, s2_std_prior, np.mean(s1_samples), np.std(s1_samples), np.mean(s2_samples), np.std(s2_samples))
-
+    """
 
     # Q5 and Q6
-    """
     filename = 'SerieA.csv'
     matches = load_dataset(filename)
 
@@ -337,7 +337,6 @@ def main():
     
     print(f"Shuffled Prediction rate: {prediction_rate:.2f}")
     print("Is shuffled prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
-    """
 
 if __name__ == "__main__":
     main()
