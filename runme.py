@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -10,7 +11,7 @@ def truncated_normal_sample(mean, stddev, lower, upper):
     return stats.truncnorm.rvs(a, b, loc=mean, scale=stddev)
 
 
-def Q4(num_samples=10000, burn_in=1000, mu1=25, mu2=25, sigma1=25/3, sigma2=25/3, y=1, option=""):
+def Q4(num_samples=1000, burn_in=100, mu1=25, mu2=25, sigma1=25/3, sigma2=25/3, y=1, option=""):
     """Gibbs sampler for a single match."""
     s1 = mu1
     s2 = mu2
@@ -45,13 +46,13 @@ def Q4(num_samples=10000, burn_in=1000, mu1=25, mu2=25, sigma1=25/3, sigma2=25/3
             s1_samples.append(s1)
             s2_samples.append(s2)
 
-    print(f"Mean s1: {np.mean(s1_samples)} \t Variance s1: {Sigma_s_post[0,0]}")
-    print(f"Mean s2: {np.mean(s2_samples)} \t Variance s2: {Sigma_s_post[1,1]}")
+    #print(f"Mean s1: {np.mean(s1_samples)} \t Variance s1: {np.std(s1_samples)**2}")
+    #print(f"Mean s2: {np.mean(s2_samples)} \t Variance s2: {np.std(s2_samples)**2}")
 
     if option == "mean":
-        return np.mean(s1_samples), np.mean(s2_samples), Sigma_s_post[0, 0], Sigma_s_post[1, 1]
+        return np.mean(s1_samples), np.mean(s2_samples), np.std(s1_samples)**2, np.std(s2_samples)
     else:
-        return s1_samples, s2_samples, Sigma_s_post[0, 0], Sigma_s_post[1, 1]
+        return s1_samples, s2_samples, np.std(s1_samples)**2, np.std(s2_samples)**2
 
 
 def plot_samples(s1_samples, s2_samples, burn_in=500):
@@ -102,7 +103,8 @@ def Q5(matches, teams, num_samples=1000):
     """
     Update the skills and variances of teams based on match outcomes.
     """
-    skills = {team: (50, 2) for team in teams}  # Initialize (mean, sigma) for each team
+    skills = {team: (20, 2.0) for team in teams}  # initialize
+    correct_predictions = 0
 
     for match in matches:
         team1, team2, score1, score2 = match
@@ -113,16 +115,23 @@ def Q5(matches, teams, num_samples=1000):
         s1_mean, s1_sigma = skills[team1]
         s2_mean, s2_sigma = skills[team2]
 
-        if score1 > score2:
-            s1, s2, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1, option="mean")
-        else:
-            s2, s1, s2_sigma_new, s1_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1, option="mean")
+        prediction = predict_winner(s1_mean, s2_mean)
+        actual_result = 1 if score1 > score2 else -1
 
-        # Update both the mean and the sigma for each team
+        if prediction == actual_result:
+            correct_predictions += 1
+
+        if score1 > score2:
+            s1, s2, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=np.sqrt(s1_sigma), sigma2=np.sqrt(s2_sigma), y=1, option="mean")
+        else:
+            s1, s2, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=np.sqrt(s1_sigma), sigma2=np.sqrt(s2_sigma), y=-1, option="mean")
+
         skills[team1] = (s1, s1_sigma_new)
         skills[team2] = (s2, s2_sigma_new)
 
-    return skills
+    prediction_rate = correct_predictions / (len(matches) - correct_predictions)
+
+    return skills, prediction_rate
 
 
 def rank_teams(skills):
@@ -152,72 +161,35 @@ def predict_winner(s1, s2):
     Predicts the winner between two players based on their skills.
     Returns +1 if Player 1 is predicted to win, -1 if Player 2 is predicted to win.
     """
-    # The decision rule: Player 1 wins if s1 > s2
     return 1 if s1 > s2 else -1
-
-
-def Q6(matches, skills, num_samples=1000):
-    correct_predictions = 0
-
-    for match in matches:
-        team1, team2, score1, score2 = match
-        
-        if score1 == score2:  # Skip draws
-            continue
-        
-        s1_mean, s1_sigma = skills[team1]
-        s2_mean, s2_sigma = skills[team2]
-
-        prediction = predict_winner(s1_mean, s2_mean)
-        actual_result = 1 if score1 > score2 else -1
-        
-        if prediction == actual_result:
-            correct_predictions += 1
-        
-        if actual_result == 1:
-            s1_new, s2_new, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1, option="mean")
-        else:
-            s2_new, s1_new, s2_sigma_new, s1_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1, option="mean")
-
-        skills[team1] = (s1_new, s1_sigma_new)
-        skills[team2] = (s2_new, s2_sigma_new)
-
-    prediction_rate = correct_predictions / (len(matches) - correct_predictions)
-    print(f"Prediction rate: {prediction_rate:.2f}")
-    return prediction_rate
 
 
 def main():
     # Q4
+    """
     s1_samples, s2_samples, var_s1, var_s2 = Q4()
-    print(var_s1, var_s2)
     plot_samples(s1_samples, s2_samples)
-    
-    # Q5
     """
-    filename = 'SerieA.csv'  # Change to the correct path of your dataset
+
+    # Q5 and Q6
+    filename = 'SerieA.csv'
     matches = load_dataset(filename)
 
     teams = set([match[0] for match in matches] + [match[1] for match in matches])
-    final_skills = Q5(matches, teams, num_samples=1000)
+    final_skills, prediction_rate = Q5(matches, teams, num_samples=1000)
     rank_teams(final_skills)
-
-    # Q6
-    # Load matches from the dataset
-    filename = 'SerieA.csv'  # Change to the correct path of your dataset
-    matches = load_dataset(filename)
-
-    teams = set([match[0] for match in matches] + [match[1] for match in matches])
     
-    # Initialize skills
-    skills = {team: (50, 2) for team in teams}  # (mean, sigma)
-
-    # Run the predictions
-    prediction_rate = Q6(matches, skills, num_samples=1000)
-    
-    # Check if better than random guessing
+    print(f"Prediction rate: {prediction_rate:.2f}")
     print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
-    """
+
+    # shuffle matches
+    random.shuffle(matches) 
+    teams = set([match[0] for match in matches] + [match[1] for match in matches])
+    final_skills, prediction_rate = Q5(matches, teams, num_samples=1000)
+    rank_teams(final_skills)
+    
+    print(f"Shuffled Prediction rate: {prediction_rate:.2f}")
+    print("Is shuffled prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
 
 
 if __name__ == "__main__":
