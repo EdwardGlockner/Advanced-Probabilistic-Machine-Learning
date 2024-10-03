@@ -6,12 +6,11 @@ import pandas as pd
 
 def truncated_normal_sample(mean, stddev, lower, upper):
     """Sample from a truncated normal distribution."""
-    if stddev <= 0:
-        raise ValueError(f"Standard deviation must be positive. Got {stddev}.")
     a, b = (lower - mean) / stddev, (upper - mean) / stddev
     return stats.truncnorm.rvs(a, b, loc=mean, scale=stddev)
 
-def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y=1, option="not_mean"):
+
+def Q4(num_samples=10000, burn_in=1000, mu1=25, mu2=25, sigma1=25/3, sigma2=25/3, y=1, option=""):
     """Gibbs sampler for a single match."""
     s1 = mu1
     s2 = mu2
@@ -20,16 +19,16 @@ def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y
     s2_samples = []
 
     Sigma_s = np.diag([sigma1**2, sigma2**2])  
-    Sigma_s_post = Sigma_s
-    Sigma_t_s = Sigma_s[0][0] + Sigma_s[1][1]
+    Sigma_t_s = (25/6)**2
     A = np.array([[1, -1]]) 
+
     for i in range(num_samples):
         t = s1 - s2
 
         if y == 1:  
-            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), 0, np.inf)
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_t_s), 0, np.inf)
         else:
-            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), -np.inf, 0)
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_t_s), -np.inf, 0)
 
         Sigma_t = Sigma_t_s + A @ Sigma_s @ A.T  
         Sigma_t_inv = np.linalg.inv(Sigma_t)  
@@ -37,15 +36,17 @@ def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y
         Sigma_t_s_inv = 1/Sigma_t_s
 
         Sigma_s_post = np.linalg.inv(Sigma_s_inv + Sigma_t_s_inv * A.T @ A)
-
-        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([s1, s2]) + Sigma_t_s_inv * A.T @ np.array([t_trunc]))
+        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([mu1, mu2]) + Sigma_t_s_inv * A.T @ np.array([t_trunc]))
 
         s = np.random.multivariate_normal(mu_s_post, Sigma_s_post)
         s1, s2 = s
 
-        #if i > burn_in:
-        s1_samples.append(s1)
-        s2_samples.append(s2)
+        if i > burn_in:
+            s1_samples.append(s1)
+            s2_samples.append(s2)
+
+    print(f"Mean s1: {np.mean(s1_samples)} \t Variance s1: {Sigma_s_post[0,0]}")
+    print(f"Mean s2: {np.mean(s2_samples)} \t Variance s2: {Sigma_s_post[1,1]}")
 
     if option == "mean":
         return np.mean(s1_samples), np.mean(s2_samples), Sigma_s_post[0, 0], Sigma_s_post[1, 1]
@@ -189,9 +190,11 @@ def Q6(matches, skills, num_samples=1000):
 def main():
     # Q4
     s1_samples, s2_samples, var_s1, var_s2 = Q4()
+    print(var_s1, var_s2)
     plot_samples(s1_samples, s2_samples)
     
     # Q5
+    """
     filename = 'SerieA.csv'  # Change to the correct path of your dataset
     matches = load_dataset(filename)
 
@@ -214,6 +217,7 @@ def main():
     
     # Check if better than random guessing
     print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+    """
 
 
 if __name__ == "__main__":
