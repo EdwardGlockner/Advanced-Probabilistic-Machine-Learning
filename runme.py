@@ -11,31 +11,18 @@ def truncated_normal_sample(mean, stddev, lower, upper):
     a, b = (lower - mean) / stddev, (upper - mean) / stddev
     return stats.truncnorm.rvs(a, b, loc=mean, scale=stddev)
 
-
-def Q4(num_samples=1000, burn_in=500, mu1=0, mu2=20, sigma1=1, sigma2=1, y=1):
-    """
-    Gibbs sampling to estimate s1 and s2 given the result of one game y.
-    
-    Parameters:
-        num_samples: Number of samples to draw.
-        burn_in: Number of samples to discard for burn-in.
-        mu1: Mean for the prior distribution of s1.
-        mu2: Mean for the prior distribution of s2.
-        sigma1: Initial standard deviation for the prior distribution of s1.
-        sigma2: Initial standard deviation for the prior distribution of s2.
-        y: Result of the game (1 if Player 1 wins, -1 if Player 2 wins).
-    """
+def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y=1, option="not_mean"):
+    """Gibbs sampler for a single match."""
     s1 = mu1
     s2 = mu2
 
     s1_samples = []
     s2_samples = []
-    
+
     Sigma_s = np.diag([sigma1**2, sigma2**2])  
     Sigma_s_post = Sigma_s
     Sigma_t_s = Sigma_s[0][0] + Sigma_s[1][1]
     A = np.array([[1, -1]]) 
-
     for i in range(num_samples):
         t = s1 - s2
 
@@ -60,7 +47,10 @@ def Q4(num_samples=1000, burn_in=500, mu1=0, mu2=20, sigma1=1, sigma2=1, y=1):
         s1_samples.append(s1)
         s2_samples.append(s2)
 
-    return np.array(s1_samples), np.array(s2_samples)
+    if option == "mean":
+        return np.mean(s1_samples), np.mean(s2_samples), Sigma_s_post[0, 0], Sigma_s_post[1, 1]
+    else:
+        return s1_samples, s2_samples, Sigma_s_post[0, 0], Sigma_s_post[1, 1]
 
 
 def plot_samples(s1_samples, s2_samples, burn_in=500):
@@ -107,45 +97,6 @@ def plot_samples(s1_samples, s2_samples, burn_in=500):
     plt.show()
 
 
-def Q4_match(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y=1):
-    """Gibbs sampler for a single match."""
-    s1 = mu1
-    s2 = mu2
-
-    s1_samples = []
-    s2_samples = []
-
-    Sigma_s = np.diag([sigma1**2, sigma2**2])  
-    Sigma_s_post = Sigma_s
-    Sigma_t_s = Sigma_s[0][0] + Sigma_s[1][1]
-    A = np.array([[1, -1]]) 
-    for i in range(num_samples):
-        t = s1 - s2
-
-        if y == 1:  
-            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), 0, np.inf)
-        else:
-            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), -np.inf, 0)
-
-        Sigma_t = Sigma_t_s + A @ Sigma_s @ A.T  
-        Sigma_t_inv = np.linalg.inv(Sigma_t)  
-        Sigma_s_inv = np.linalg.inv(Sigma_s)  
-        Sigma_t_s_inv = 1/Sigma_t_s
-
-        Sigma_s_post = np.linalg.inv(Sigma_s_inv + Sigma_t_s_inv * A.T @ A)
-
-        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([s1, s2]) + Sigma_t_s_inv * A.T @ np.array([t_trunc]))
-
-        s = np.random.multivariate_normal(mu_s_post, Sigma_s_post)
-        s1, s2 = s
-
-        #if i > burn_in:
-        s1_samples.append(s1)
-        s2_samples.append(s2)
-
-    return np.mean(s1_samples), np.mean(s2_samples), Sigma_s_post[0, 0], Sigma_s_post[1, 1]
-
-
 def Q5(matches, teams, num_samples=1000):
     """
     Update the skills and variances of teams based on match outcomes.
@@ -162,9 +113,9 @@ def Q5(matches, teams, num_samples=1000):
         s2_mean, s2_sigma = skills[team2]
 
         if score1 > score2:
-            s1, s2, s1_sigma_new, s2_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1)
+            s1, s2, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1, option="mean")
         else:
-            s2, s1, s2_sigma_new, s1_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1)
+            s2, s1, s2_sigma_new, s1_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1, option="mean")
 
         # Update both the mean and the sigma for each team
         skills[team1] = (s1, s1_sigma_new)
@@ -223,9 +174,9 @@ def Q6(matches, skills, num_samples=1000):
             correct_predictions += 1
         
         if actual_result == 1:
-            s1_new, s2_new, s1_sigma_new, s2_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1)
+            s1_new, s2_new, s1_sigma_new, s2_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1, option="mean")
         else:
-            s2_new, s1_new, s2_sigma_new, s1_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1)
+            s2_new, s1_new, s2_sigma_new, s1_sigma_new = Q4(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1, option="mean")
 
         skills[team1] = (s1_new, s1_sigma_new)
         skills[team2] = (s2_new, s2_sigma_new)
@@ -237,7 +188,7 @@ def Q6(matches, skills, num_samples=1000):
 
 def main():
     # Q4
-    s1_samples, s2_samples = Q4()
+    s1_samples, s2_samples, var_s1, var_s2 = Q4()
     plot_samples(s1_samples, s2_samples)
     
     # Q5
