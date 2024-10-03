@@ -4,13 +4,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def truncated_normal_sample(mean, std, lower, upper):
+def truncated_normal_sample(mean, stddev, lower, upper):
     """Sample from a truncated normal distribution."""
-    return stats.truncnorm.rvs((lower - mean) / std, (upper - mean) / std, loc=mean, scale=std)
+    if stddev <= 0:
+        raise ValueError(f"Standard deviation must be positive. Got {stddev}.")
+    a, b = (lower - mean) / stddev, (upper - mean) / stddev
+    return stats.truncnorm.rvs(a, b, loc=mean, scale=stddev)
 
 
-
-def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y=1):
+def Q4(num_samples=1000, burn_in=500, mu1=0, mu2=20, sigma1=1, sigma2=1, y=1):
     """
     Gibbs sampling to estimate s1 and s2 given the result of one game y.
     
@@ -23,53 +25,45 @@ def Q4(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y
         sigma2: Initial standard deviation for the prior distribution of s2.
         y: Result of the game (1 if Player 1 wins, -1 if Player 2 wins).
     """
-    
-    # Initial values
     s1 = mu1
     s2 = mu2
-    
-    # To store samples
+
     s1_samples = []
     s2_samples = []
     
-    # Set up the covariance matrix
-    Sigma_s = np.diag([sigma1**2, sigma2**2])  # Diagonal covariance matrix
-    A = np.array([[1, -1]])  # Linear transformation matrix
+    Sigma_s = np.diag([sigma1**2, sigma2**2])  
+    Sigma_s_post = Sigma_s
+    Sigma_t_s = Sigma_s[0][0] + Sigma_s[1][1]
+    A = np.array([[1, -1]]) 
 
     for i in range(num_samples):
-        # Compute t based on current values of s1 and s2
         t = s1 - s2
-        
-        # Sample t based on the outcome
-        if y == 1:  # Player 1 wins, t > 0
-            t_trunc = truncated_normal_sample(t, np.sqrt(sigma1**2 + sigma2**2), 0, np.inf)
-        else:  # Player 2 wins, t < 0
-            t_trunc = truncated_normal_sample(t, np.sqrt(sigma1**2 + sigma2**2), -np.inf, 0)
 
-        # Compute posterior covariance and mean for s
-        Sigma_t = 0 + A @ Sigma_s @ A.T  # Covariance of t, assuming no extra noise
-        Sigma_t_inv = np.linalg.inv(Sigma_t)  # Inverse of the covariance of t
-        Sigma_s_inv = np.linalg.inv(Sigma_s)  # Inverse of the prior covariance
-        
-        # Posterior covariance
-        Sigma_s_post = np.linalg.inv(Sigma_s_inv + A.T @ Sigma_t_inv @ A)
+        if y == 1:  
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), 0, np.inf)
+        else:
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), -np.inf, 0)
 
-        # Posterior mean
-        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([mu1, mu2]) + A.T @ Sigma_t_inv @ np.array([t_trunc]))
-        
-        # Sample from the posterior
+        Sigma_t = Sigma_t_s + A @ Sigma_s @ A.T  
+        Sigma_t_inv = np.linalg.inv(Sigma_t)  
+        Sigma_s_inv = np.linalg.inv(Sigma_s)  
+        Sigma_t_s_inv = 1/Sigma_t_s
+
+        Sigma_s_post = np.linalg.inv(Sigma_s_inv + Sigma_t_s_inv * A.T @ A)
+
+        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([s1, s2]) + Sigma_t_s_inv * A.T @ np.array([t_trunc]))
+
         s = np.random.multivariate_normal(mu_s_post, Sigma_s_post)
         s1, s2 = s
 
-        # Store samples after burn-in
+        #if i > burn_in:
         s1_samples.append(s1)
         s2_samples.append(s2)
 
-    print(np.mean(s1_samples))
-    print(np.mean(s2_samples))
     return np.array(s1_samples), np.array(s2_samples)
 
-def plot_samples(s1_samples, s2_samples, burn_in):
+
+def plot_samples(s1_samples, s2_samples, burn_in=500):
     """
 
     """
@@ -115,73 +109,66 @@ def plot_samples(s1_samples, s2_samples, burn_in):
 
 def Q4_match(num_samples=5000, burn_in=1000, mu1=20, mu2=20, sigma1=0.5, sigma2=0.5, y=1):
     """Gibbs sampler for a single match."""
-    # Initial values
     s1 = mu1
     s2 = mu2
-    
-    # To store samples
+
     s1_samples = []
     s2_samples = []
-    
-    # Set up the covariance matrix
-    Sigma_s = np.diag([sigma1**2, sigma2**2])  # Diagonal covariance matrix
-    A = np.array([[1, -1]])  # Linear transformation matrix
 
+    Sigma_s = np.diag([sigma1**2, sigma2**2])  
+    Sigma_s_post = Sigma_s
+    Sigma_t_s = Sigma_s[0][0] + Sigma_s[1][1]
+    A = np.array([[1, -1]]) 
     for i in range(num_samples):
-        # Compute t based on current values of s1 and s2
         t = s1 - s2
-        
-        # Sample t based on the outcome
-        if y == 1:  # Player 1 wins, t > 0
-            t_trunc = truncated_normal_sample(t, np.sqrt(sigma1**2 + sigma2**2), 0, np.inf)
-        else:  # Player 2 wins, t < 0
-            t_trunc = truncated_normal_sample(t, np.sqrt(sigma1**2 + sigma2**2), -np.inf, 0)
 
-        # Compute posterior covariance and mean for s
-        Sigma_t = 0 + A @ Sigma_s @ A.T  # Covariance of t, assuming no extra noise
-        Sigma_t_inv = np.linalg.inv(Sigma_t)  # Inverse of the covariance of t
-        Sigma_s_inv = np.linalg.inv(Sigma_s)  # Inverse of the prior covariance
-        
-        # Posterior covariance
-        Sigma_s_post = np.linalg.inv(Sigma_s_inv + A.T @ Sigma_t_inv @ A)
+        if y == 1:  
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), 0, np.inf)
+        else:
+            t_trunc = truncated_normal_sample(t, np.sqrt(Sigma_s_post[0][0] + Sigma_s_post[1][1]), -np.inf, 0)
 
-        # Posterior mean
-        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([mu1, mu2]) + A.T @ Sigma_t_inv @ np.array([t_trunc]))
-        
-        # Sample from the posterior
+        Sigma_t = Sigma_t_s + A @ Sigma_s @ A.T  
+        Sigma_t_inv = np.linalg.inv(Sigma_t)  
+        Sigma_s_inv = np.linalg.inv(Sigma_s)  
+        Sigma_t_s_inv = 1/Sigma_t_s
+
+        Sigma_s_post = np.linalg.inv(Sigma_s_inv + Sigma_t_s_inv * A.T @ A)
+
+        mu_s_post = Sigma_s_post @ (Sigma_s_inv @ np.array([s1, s2]) + Sigma_t_s_inv * A.T @ np.array([t_trunc]))
+
         s = np.random.multivariate_normal(mu_s_post, Sigma_s_post)
         s1, s2 = s
 
-        # Store samples after burn-in
+        #if i > burn_in:
         s1_samples.append(s1)
         s2_samples.append(s2)
 
-    return np.mean(s1_samples), np.mean(s2_samples)
+    return np.mean(s1_samples), np.mean(s2_samples), Sigma_s_post[0, 0], Sigma_s_post[1, 1]
 
 
 def Q5(matches, teams, num_samples=1000):
     """
-    Problems: Should Q4 be run with num_samples???
+    Update the skills and variances of teams based on match outcomes.
     """
-    skills = {team: (50, 2) for team in teams}  # (mean, sigma)
+    skills = {team: (50, 2) for team in teams}  # Initialize (mean, sigma) for each team
 
     for match in matches:
-        print(match)
         team1, team2, score1, score2 = match
 
-        # Skip draws 
-        if score1 == score2:
+        if score1 == score2:  # Skip draws
             continue
-        
+
         s1_mean, s1_sigma = skills[team1]
         s2_mean, s2_sigma = skills[team2]
+
         if score1 > score2:
-            s1, s2 = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean)
+            s1, s2, s1_sigma_new, s2_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1)
         else:
-            s2, s1 = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean)
-        
-        skills[team1] = (s1, s1_sigma)  # Update skill for team 1
-        skills[team2] = (s2, s2_sigma)  # Update skill for team 2
+            s2, s1, s2_sigma_new, s1_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1)
+
+        # Update both the mean and the sigma for each team
+        skills[team1] = (s1, s1_sigma_new)
+        skills[team2] = (s2, s2_sigma_new)
 
     return skills
 
@@ -214,11 +201,8 @@ def predict_winner(s1, s2):
     Returns +1 if Player 1 is predicted to win, -1 if Player 2 is predicted to win.
     """
     # The decision rule: Player 1 wins if s1 > s2
-    if s1 > s2:
-        print("s1 wins")
-    else:
-        print("s2 wins")
     return 1 if s1 > s2 else -1
+
 
 def Q6(matches, skills, num_samples=1000):
     correct_predictions = 0
@@ -226,55 +210,45 @@ def Q6(matches, skills, num_samples=1000):
     for match in matches:
         team1, team2, score1, score2 = match
         
-        # Skip draws
-        if score1 == score2:
+        if score1 == score2:  # Skip draws
             continue
         
-        # Get current skills for the teams
         s1_mean, s1_sigma = skills[team1]
         s2_mean, s2_sigma = skills[team2]
-        
-        # Predict the outcome
-        prediction = predict_winner(s1_mean, s2_mean)
 
-        # Compare prediction to the actual result
+        prediction = predict_winner(s1_mean, s2_mean)
         actual_result = 1 if score1 > score2 else -1
+        
         if prediction == actual_result:
             correct_predictions += 1
         
-        # Update the skills with the actual match result
         if actual_result == 1:
-            s1_new, s2_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, y=1)
+            s1_new, s2_new, s1_sigma_new, s2_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=1)
         else:
-            s2_new, s1_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, y=-1)
-        
-        # Update skills for the teams
-        skills[team1] = (s1_new, s1_sigma)  # Update skill for team 1
-        skills[team2] = (s2_new, s2_sigma)  # Update skill for team 2
-    
-    # Calculate prediction rate
-    prediction_rate = correct_predictions / (len(matches) - correct_predictions)  # Total matches minus draws
+            s2_new, s1_new, s2_sigma_new, s1_sigma_new = Q4_match(num_samples=num_samples, mu1=s1_mean, mu2=s2_mean, sigma1=s1_sigma, sigma2=s2_sigma, y=-1)
+
+        skills[team1] = (s1_new, s1_sigma_new)
+        skills[team2] = (s2_new, s2_sigma_new)
+
+    prediction_rate = correct_predictions / (len(matches) - correct_predictions)
     print(f"Prediction rate: {prediction_rate:.2f}")
     return prediction_rate
 
+
 def main():
     # Q4
-    """
-    burn_in = 1000
-    s1_samples, s2_samples = Q4(burn_in=burn_in)
-    plot_samples(s1_samples, s2_samples, burn_in)
-    """
+    s1_samples, s2_samples = Q4()
+    plot_samples(s1_samples, s2_samples)
     
     # Q5
-    """
     filename = 'SerieA.csv'  # Change to the correct path of your dataset
     matches = load_dataset(filename)
 
     teams = set([match[0] for match in matches] + [match[1] for match in matches])
     final_skills = Q5(matches, teams, num_samples=1000)
     rank_teams(final_skills)
-    """
 
+    # Q6
     # Load matches from the dataset
     filename = 'SerieA.csv'  # Change to the correct path of your dataset
     matches = load_dataset(filename)
@@ -291,7 +265,7 @@ def main():
     print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
 
 
-
 if __name__ == "__main__":
     main()
+
 
