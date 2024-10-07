@@ -4,6 +4,7 @@ import random
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.stats import norm
 
 
 def truncated_normal_sample(mean, stddev, lower, upper):
@@ -53,7 +54,7 @@ def Q4(num_samples=5000, burn_in=60, mu1=25, mu2=25, sigma1=25/3, sigma2=25/3, y
     if option == "mean":
         return np.mean(s1_samples), np.mean(s2_samples), np.std(s1_samples)**2, np.std(s2_samples)
     else:
-        return s1_samples, s2_samples, np.std(s1_samples)**2, np.std(s2_samples)**2
+        return s1_samples, s2_samples
 
 
 def plot_histogram_and_gaussian(samples, mu, sigma, ax, title):
@@ -230,11 +231,13 @@ def Q5(matches, teams, num_samples=2000):
     """
     skills = {team: (20, 2.0) for team in teams}  # initialize
     correct_predictions = 0
+    amount_draws = 0
 
     for match in matches:
         team1, team2, score1, score2 = match
 
         if score1 == score2:  # Skip draws
+            amount_draws += 1
             continue
 
         s1_mean, s1_sigma = skills[team1]
@@ -254,7 +257,7 @@ def Q5(matches, teams, num_samples=2000):
         skills[team1] = (s1, s1_sigma_new)
         skills[team2] = (s2, s2_sigma_new)
 
-    prediction_rate = correct_predictions / (len(matches) - correct_predictions)
+    prediction_rate = correct_predictions / (len(matches) - amount_draws)
 
     return skills, prediction_rate
 
@@ -289,6 +292,303 @@ def predict_winner(s1, s2):
     return 1 if s1 > s2 else -1
 
 
+def multiplyGaussians(m1, s1, m2, s2):
+    s = 1/(1/s1+1/s2)
+    m = (m1/s1+m2/s2)*s
+    return m, s
+
+
+def divideGaussians(m1, s1, m2, s2):
+    m,s = multiplyGaussians(m1, s1, m2, -s2)
+    return m, s
+
+def truncatedGaussian(a, b, m0, s0):
+    a_scaled, b_scaled = (a-m0)/np.sqrt(s0), (b-m0)/np.sqrt(s0)
+    m = stats.truncnorm.mean(a_scaled, b_scaled, loc=m0, scale=np.sqrt(s0))
+    s = stats.truncnorm.var(a_scaled, b_scaled, loc=m0, scale=np.sqrt(s0))
+    return m, s
+
+def compute_draw_margin(variance, draw_probability=0.1):
+    # Compute the draw margin based on the variance and desired draw probability
+    return stats.norm.ppf((draw_probability + 1) / 2) * np.sqrt(variance)
+
+
+def Q8(s1_mean=25, s2_mean=25, s1_var=(25/3)**2, s2_var=(25/3)**2, y_obs = 1):
+    y_obs = y_obs
+    
+    # Assume the following mean and variance
+    mu1_mean = s1_mean
+    mu3_mean = s2_mean
+    mu1_var = s1_var
+    mu3_var = s2_var
+    var_t_s = (25/6)**2
+    
+    # Message mu1 and mu3 are not affected by s1 and s2 nodes
+    mu2_mean = mu1_mean
+    mu4_mean = mu3_mean
+    mu2_var = mu1_var
+    mu4_var = mu3_var
+    
+    # Message mu5 which is incoming message mu2 and mu4 with factor f_st
+    mu5_mean = mu2_mean - mu4_mean
+    mu5_var = var_t_s + mu2_var + mu4_var
+    
+    # At node t, we have the truncated Gaussian for p(t|y)
+    if y_obs == 1:
+        a, b = 0, np.Inf
+    elif y_obs == -1:
+        a, b = np.NINF, 0
+        
+    # Moment matching to approximate the truncated Gaussian
+    pty_mean, pty_var = truncatedGaussian(a, b, mu5_mean, mu5_var)
+    
+    # Now we want to compute the message mu9 from t node to f_xt where we have to divide by mu5 to not use it twice
+    mu9_mean, mu9_var = divideGaussians(pty_mean, pty_var, mu5_mean, mu5_var)
+    
+    # mean of message mu10 and mu11 are from analytical expressions 
+    mu10_mean, mu10_var = mu2_mean - mu9_mean, var_t_s + mu2_var + mu9_var
+    
+    mu11_mean, mu11_var = mu4_mean + mu9_mean, var_t_s + mu4_var + mu9_var
+        
+    # Compute nodes s1 and s2 as the product of the incoming messages to the nodes
+    ps1y_mean, ps1y_var = multiplyGaussians(mu1_mean, mu1_var, mu11_mean, mu11_var)
+    
+    ps2y_mean, ps2y_var = multiplyGaussians(mu3_mean, mu3_var, mu10_mean, mu10_var)
+    
+    return ps1y_mean, ps1y_var, ps2y_mean, ps2y_var 
+
+def plot_posteriors(ps1y_mean, ps1y_var, ps2y_mean, ps2y_var):
+    """Plot the Gaussian posteriors for p(s1|y) and p(s2|y)."""
+    x_range = np.linspace(min(ps1y_mean, ps2y_mean) - 4*np.sqrt(max(ps1y_var, ps2y_var)),
+                          max(ps1y_mean, ps2y_mean) + 4*np.sqrt(max(ps1y_var, ps2y_var)), 500)
+
+    # create Gaussian dist. with means and variances
+    ps1y_pdf = norm.pdf(x_range, ps1y_mean, np.sqrt(ps1y_var))
+    ps2y_pdf = norm.pdf(x_range, ps2y_mean, np.sqrt(ps2y_var))
+
+    # Plot Gaussians
+    plt.figure(figsize=(10, 6))
+    
+    plt.plot(x_range, ps1y_pdf, color='blue', label=f'Posterior p(s1|y)\nMean: {ps1y_mean:.3f}, Variance: {ps1y_var:.3f}')
+    plt.fill_between(x_range, ps1y_pdf, color='blue', alpha=0.3)
+    
+    plt.plot(x_range, ps2y_pdf, color='red', label=f'Posterior p(s2|y)\nMean: {ps2y_mean:.3f}, Variance: {ps2y_var:.3f}')
+    plt.fill_between(x_range, ps2y_pdf, color='red', alpha=0.3)
+    
+    plt.title('Posterior distributions p(s1|y) and p(s2|y) using message passing')
+    plt.legend()
+    plt.show()
+    
+def plot_histograms_and_gaussians(samples1, mu1, sigma1, samples2, mu2, sigma2):
+    """Plot histograms and Gaussian approximations of two samples"""
+    plt.figure(figsize=(10, 6))
+    
+    # Histogram for s1 samples
+    plt.hist(samples1, bins=30, density=True, alpha=0.5, color='blue', label='Samples of p(s1|y)')
+    
+    # Gaussian approximation of s1
+    x1 = np.linspace(min(samples1), max(samples1), 100)
+    p1 = stats.norm.pdf(x1, mu1, sigma1)
+    plt.plot(x1, p1, 'blue', linestyle='-', linewidth=2, label=f'Gaussian approx. of p(s1|y) \nMean: {mu1:.3f}, Variance: {sigma1**2:.3f}')
+    
+    # Histogram for s1 samples
+    plt.hist(samples2, bins=30, density=True, alpha=0.5, color='red', label='Samples of p(s2|y)')
+
+    # Gaussian approximation of s2
+    x2 = np.linspace(min(samples2), max(samples2), 100)
+    p2 = stats.norm.pdf(x2, mu2, sigma2)
+    plt.plot(x2, p2, 'red', linestyle='-', linewidth=2, label=f'Gaussian approx. of p(s2|y)\nMean: {mu2:.3f}, Variance: {sigma2**2:.3f}')
+    
+    plt.title('Histograms and Gaussian Approximations of p(s1|y) and p(s2|y) using Gibbs sampling')
+    plt.legend()
+    plt.show()
+    
+    
+def Q10_with_draws(s1_mean=25, s2_mean=25, s1_var=(25/3)**2, s2_var=(25/3)**2, y_obs = 1):
+    
+    y_obs = y_obs
+    
+    # Assume the following mean and variance
+    mu1_mean = s1_mean
+    mu3_mean = s2_mean
+    mu1_var = s1_var
+    mu3_var = s2_var
+    var_t_s = (25/6)**2
+    
+    # Message mu1 and mu3 are not affected by s1 and s2 nodes
+    mu2_mean = mu1_mean
+    mu4_mean = mu3_mean
+    mu2_var = mu1_var
+    mu4_var = mu3_var
+    
+    # Message mu5 which is incoming message mu2 and mu4 with factor f_st
+    mu5_mean = mu2_mean - mu4_mean
+    mu5_var = var_t_s + mu2_var + mu4_var
+    
+    # At node t, we have the truncated Gaussian for p(t|y)
+    if y_obs == 1:
+        a, b = 0, np.Inf
+    elif y_obs == -1:
+        a, b = np.NINF, 0
+    elif y_obs == 0:
+        if mu2_mean > mu4_mean: 
+            a, b = np.NINF, 0 # adjust skill so lower skilled team gain skill
+        elif mu2_mean < mu4_mean:
+            a, b = 0, np.Inf # adjust skill so lower skilled team gain skill
+        else:
+            a, b = -1, 1 # no difference
+    
+               
+    # Moment matching to approximate the truncated Gaussian
+    pty_mean, pty_var = truncatedGaussian(a, b, mu5_mean, mu5_var)
+    
+    # Now we want to compute the message mu9 from t node to f_xt where we have to divide by mu5 to not use it twice
+    mu9_mean, mu9_var = divideGaussians(pty_mean, pty_var, mu5_mean, mu5_var)
+    
+    # mean of message mu10 and mu11 are from analytical expressions 
+    mu10_mean, mu10_var = mu2_mean - mu9_mean, var_t_s + mu2_var + mu9_var
+    
+    mu11_mean, mu11_var = mu4_mean + mu9_mean, var_t_s + mu4_var + mu9_var
+        
+    # Compute nodes s1 and s2 as the product of the incoming messages to the nodes
+    ps1y_mean, ps1y_var = multiplyGaussians(mu1_mean, mu1_var, mu11_mean, mu11_var)
+    
+    ps2y_mean, ps2y_var = multiplyGaussians(mu3_mean, mu3_var, mu10_mean, mu10_var)
+    
+    if y_obs == 0:
+        # Implement categories of skill difference factors
+        skill_diff = abs(mu2_mean - mu4_mean)
+        #print("skill diff = ", skill_diff)
+        if skill_diff < 0.5:
+            scaling_factor = 0
+        elif skill_diff >= 0.5 and skill_diff < 1:
+            scaling_factor = 0.125
+        elif skill_diff >= 1 and skill_diff < 1.5:
+            scaling_factor = 0.25
+        elif skill_diff >= 1.5 and skill_diff < 2:
+            scaling_factor = 0.375
+        elif skill_diff >= 2:
+            scaling_factor = 0.5
+        
+        #print("scaling factor = ", scaling_factor)
+        
+        # new skill can't be greater than 0.5 times the new skill vs old skill. Lower team gain skill by drawing against higher skilled teams. Scaling factor depends on the skill difference between the teams
+        # change of mean
+        ps1y_mean = mu2_mean + (ps1y_mean - mu2_mean) * scaling_factor
+        ps2y_mean = mu4_mean + (ps2y_mean - mu4_mean) * scaling_factor
+        
+        # change of variance, increase the uncertainty when teams draw. (ps1|2y_var - mu2|4_var) is always negative
+        ps1y_var = mu2_var - (ps1y_var - mu2_var) 
+        ps2y_var = mu4_var - (ps2y_var - mu4_var) 
+        
+    return ps1y_mean, ps1y_var, ps2y_mean, ps2y_var 
+
+
+def Q10(matches, teams):
+    """
+    Update the skills and variances of teams based on match outcomes.
+    """
+    skills = {team: (20, 2.0) for team in teams}  # initialize
+    correct_predictions = 0 
+    amount_draws = 0 
+    
+    for match in matches:
+        #print(match)
+        team1, team2, score1, score2 = match
+
+        s1_mean, s1_var = skills[team1]
+        s2_mean, s2_var = skills[team2]
+
+        if score1 > score2:     # team 1 wins
+            y_obs = 1
+        elif score1 < score2:   # team 2 wins
+            y_obs = -1
+        else:                   # teams draw
+            amount_draws += 1
+            y_obs = 0 
+            
+            
+        if y_obs != 0:
+            prediction = predict_winner(s1_mean, s2_mean)
+            if prediction == y_obs:
+                correct_predictions += 1
+            
+            
+        s1_mean_new, s1_var_new, s2_mean_new, s2_var_new = Q10_with_draws(s1_mean=s1_mean, s2_mean=s2_mean, s1_var=s1_var, s2_var=s2_var, y_obs=y_obs)
+        
+        skills[team1] = (s1_mean_new, s1_var_new)
+        skills[team2] = (s2_mean_new, s2_var_new)
+        
+    prediction_rate = correct_predictions / (len(matches) - amount_draws)
+    
+    return skills, prediction_rate
+
+
+def load_chess_dataset(filename):
+    """
+    Load a dataset of chess matches from a CSV file.
+    
+    The CSV file should have the following columns:
+    - Player1: Name of the first player
+    - Elo1: Elo rating of the first player
+    - Player2: Name of the second player
+    - Elo2: Elo rating of the second player
+    - Result: Result of the match (1–0, 0–1, ½–½)
+
+    Returns:
+    A list of matches in the form (Player1, Player2, Score1, Score2).
+    """
+    df = pd.read_csv(filename, sep=",")
+    matches = []
+
+    for _, row in df.iterrows():
+        player1 = row['Player1'].strip()
+        player2 = row['Player2'].strip()
+        result = row['Result'].strip()
+
+        # Convert the result to numerical scores:
+        if result == '1 – 0':  # Player1 wins
+            score1, score2 = 1, 0
+        elif result == '0 – 1':  # Player2 wins
+            score1, score2 = 0, 1
+        elif result == '½–½':  # Draw
+            score1, score2 = 0.5, 0.5
+        else:
+            raise ValueError(f"Unknown result format: {result}")
+
+        matches.append((player1, player2, score1, score2))
+
+    return matches
+
+def calculate_true_chess_rankings(matches):
+    """
+    Calculate true rankings of players based on match results.
+
+    Parameters:
+    matches (list): A list of matches in the form (Player1, Player2, Score1, Score2).
+
+    Returns:
+    dict: A dictionary with player names as keys and their total scores as values.
+    """
+    scores = {}
+
+    for player1, player2, score1, score2 in matches:
+        if player1 not in scores:
+            scores[player1] = 0
+        if player2 not in scores:
+            scores[player2] = 0
+        
+        # Update the scores based on the match results
+        scores[player1] += score1
+        scores[player2] += score2
+
+    # Sort players by score and name
+    sorted_rankings = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+    rankings = {rank + 1: (player, score) for rank, (player, score) in enumerate(sorted_rankings)}
+
+    return rankings
+
+
 def main():
     # Q4
     """
@@ -319,24 +619,60 @@ def main():
     """
 
     # Q5 and Q6
+    # filename = 'SerieA.csv'
+    # matches = load_dataset(filename)
+
+    # teams = set([match[0] for match in matches] + [match[1] for match in matches])
+    # final_skills, prediction_rate = Q5(matches, teams, num_samples=2000)
+    # rank_teams(final_skills)
+    
+    # print(f"Prediction rate: {prediction_rate:.2f}")
+    # print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+
+    # # shuffle matches
+    # random.shuffle(matches) 
+    # teams = set([match[0] for match in matches] + [match[1] for match in matches])
+    # final_skills, prediction_rate = Q5(matches, teams, num_samples=2000)
+    # rank_teams(final_skills)
+    
+    # print(f"Shuffled Prediction rate: {prediction_rate:.2f}")
+    # print("Is shuffled prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+    
+    # Q8 - simulate one match with mean = 25 and variance = (25/3)**2 of s1 and s2 and var_t_s = (25/6)**2. For Gibbs, use 5000 samples. All of this are set by default in the functions
+    
+    # ps1y_mean, ps1y_var, ps2y_mean, ps2y_var = Q8()
+    
+    # ps1y_Gibbs_samples, ps2y_Gibbs_samples = Q4(y=1)
+    
+    # plot_posteriors(ps1y_mean, ps1y_var, ps2y_mean, ps2y_var)
+    # plot_histograms_and_gaussians(
+    #     ps1y_Gibbs_samples, np.mean(ps1y_Gibbs_samples), np.std(ps1y_Gibbs_samples), 
+    #     ps2y_Gibbs_samples, np.mean(ps2y_Gibbs_samples), np.std(ps2y_Gibbs_samples)
+    # )
+    
+    # Q9 - own data
+    filename = 'chess_dataset.csv'
+    matches = load_chess_dataset(filename)
+    players = set([match[0] for match in matches] + [match[1] for match in matches])
+    rankings = calculate_true_chess_rankings(matches)
+    for rank, (player, score) in rankings.items():
+        print(f"Rank {rank}: {player} - {score} points")
+    final_skills, prediction_rate = Q5(matches, players)
+    rank_teams(final_skills)
+    print(f"Prediction rate: {prediction_rate:.2f}")
+    print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+    
+    # Q10 - modify the model --> implement skill modificiation in draws
+    """
     filename = 'SerieA.csv'
     matches = load_dataset(filename)
 
     teams = set([match[0] for match in matches] + [match[1] for match in matches])
-    final_skills, prediction_rate = Q5(matches, teams, num_samples=2000)
+    final_skills, pred_rate = Q10(matches, teams)
     rank_teams(final_skills)
-    
-    print(f"Prediction rate: {prediction_rate:.2f}")
-    print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
+    print(pred_rate)
+    """
 
-    # shuffle matches
-    random.shuffle(matches) 
-    teams = set([match[0] for match in matches] + [match[1] for match in matches])
-    final_skills, prediction_rate = Q5(matches, teams, num_samples=2000)
-    rank_teams(final_skills)
-    
-    print(f"Shuffled Prediction rate: {prediction_rate:.2f}")
-    print("Is shuffled prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
 
 if __name__ == "__main__":
     main()
