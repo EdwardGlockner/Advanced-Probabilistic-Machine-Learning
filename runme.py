@@ -478,8 +478,8 @@ def Q10_with_draws(s1_mean=25, s2_mean=25, s1_var=(25/3)**2, s2_var=(25/3)**2, y
         ps2y_mean = mu4_mean + (ps2y_mean - mu4_mean) * scaling_factor
         
         # change of variance, increase the uncertainty when teams draw. (ps1|2y_var - mu2|4_var) is always negative
-        ps1y_var = mu2_var - (ps1y_var - mu2_var) 
-        ps2y_var = mu4_var - (ps2y_var - mu4_var) 
+        ps1y_var = mu2_var - (ps1y_var - mu2_var) * scaling_factor
+        ps2y_var = mu4_var - (ps2y_var - mu4_var) * scaling_factor
         
     return ps1y_mean, ps1y_var, ps2y_mean, ps2y_var 
 
@@ -538,21 +538,36 @@ def load_chess_dataset(filename):
     Returns:
     A list of matches in the form (Player1, Player2, Score1, Score2).
     """
-    df = pd.read_csv(filename, sep=",")
+    # Load the dataset with the correct settings, assuming first row is a header
+    df = pd.read_csv(filename, header=0)
+
+    # Check for proper columns (5 expected)
+    if df.shape[1] < 5:
+        raise ValueError("Dataset does not contain the expected number of columns.")
+
     matches = []
 
+    # Inspect the DataFrame to check for NaN values
+    print("DataFrame Info:")
+    print(df.info())
+    print("DataFrame Head:")
+    print(df.head())
+
     for _, row in df.iterrows():
-        player1 = row['Player1'].strip()
-        player2 = row['Player2'].strip()
-        result = row['Result'].strip()
+
+        player1 = row['Player1']
+        elo1 = row['Elo1']
+        player2 = row['Player2']
+        elo2 = row['Elo2']
+        result = row['Result']
 
         # Convert the result to numerical scores:
-        if result == '1 – 0':  # Player1 wins
-            score1, score2 = 1, 0
-        elif result == '0 – 1':  # Player2 wins
-            score1, score2 = 0, 1
-        elif result == '½–½':  # Draw
+        if result == '1/2-1/2':  # Draw
             score1, score2 = 0.5, 0.5
+        elif result == '1-0':  # Player1 wins
+            score1, score2 = 1, 0
+        elif result == '0-1':  # Player2 wins
+            score1, score2 = 0, 1
         else:
             raise ValueError(f"Unknown result format: {result}")
 
@@ -651,13 +666,13 @@ def main():
     # )
     
     # Q9 - own data
-    filename = 'chess_dataset.csv'
+    filename = 'chess_games.csv'
     matches = load_chess_dataset(filename)
     players = set([match[0] for match in matches] + [match[1] for match in matches])
     rankings = calculate_true_chess_rankings(matches)
     for rank, (player, score) in rankings.items():
         print(f"Rank {rank}: {player} - {score} points")
-    final_skills, prediction_rate = Q5(matches, players)
+    final_skills, prediction_rate = Q10(matches, players)
     rank_teams(final_skills)
     print(f"Prediction rate: {prediction_rate:.2f}")
     print("Is prediction better than random guessing? ", "Yes" if prediction_rate > 0.5 else "No")
